@@ -1,0 +1,9 @@
+{
+  "ui": "",
+  "change": "Initial build.",
+  "pluginSetupABI": {
+    "prepareInstallation": ["uint256 number"],
+    "prepareUpdate": [],
+    "prepareUninstallation": []
+  }
+}

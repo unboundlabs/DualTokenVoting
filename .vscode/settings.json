@@ -1,0 +1,12 @@
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "prettier.documentSelectors": ["**/*.sol"],
+  "solidity.formatter": "prettier",
+  "deno.enable": false,
+  "deno.unstable": true,
+  "deno.lint": false,
+  "deno.enablePaths": [
+    "./deno"
+  ]
+}

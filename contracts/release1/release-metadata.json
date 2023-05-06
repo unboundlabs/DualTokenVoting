@@ -1,0 +1,5 @@
+{
+  "name": "SimpleStorage",
+  "description": "An upgradeable plugin storing values on-chain. This plugin is an example showcasing how to write and maintain upgradeable plugins in the Aragon OSx protocol.",
+  "images": {}
+}
