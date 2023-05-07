@@ -18,7 +18,7 @@ let dualTokenVotingRepo: PluginRepo;
 
 let setupR1B1: DualTokenVotingSetup;
 
-describe.only('DualVotingToken Deployment', function () {
+describe('DualVotingToken Deployment', function () {
   before(async () => {
     const hardhatForkNetwork = process.env.HARDHAT_FORK_NETWORK
       ? process.env.HARDHAT_FORK_NETWORK

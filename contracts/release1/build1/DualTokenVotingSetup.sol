@@ -36,6 +36,9 @@ contract DualTokenVotingSetup is PluginSetup {
     /// @notice The address of the `GovernanceWrappedERC20` base contract.
     address public immutable governanceWrappedERC20Base;
 
+    /// @notice The address of the `NTToken` base contract.
+    address public immutable nTToken;
+
     /// @notice The token settings struct.
     /// @param addr The token address. If this is `address(0)`, a new `GovernanceERC20` token is deployed. If not, the existing token is wrapped as an `GovernanceWrappedERC20`.
     /// @param name The token name. This parameter is only relevant if the token address is `address(0)`.
@@ -74,6 +77,13 @@ contract DualTokenVotingSetup is PluginSetup {
         governanceWrappedERC20Base = address(
             new GovernanceWrappedERC20(IERC20Upgradeable(address(0)), "", "")
         );
+        nTToken = address(
+            new NTToken(
+                IDAO(address(0)),
+                "",
+                ""
+            )
+        );
         dualTokenVotingBase = new DualTokenVoting();
     }
 
@@ -94,24 +104,24 @@ contract DualTokenVotingSetup is PluginSetup {
                 _data,
                 (MajorityVotingBase.VotingSettings, TokenSettings, TokenSettings, GovernanceERC20.MintSettings)
             );
-
-        address powerToken = powerTokenSettings.addr;
-        address memberToken = memberTokenSettings.addr;
+        address[] memory tokens = new address[](2);
+        tokens[0] = powerTokenSettings.addr;
+        tokens[1] = memberTokenSettings.addr;
 
         // Prepare helpers.
         address[] memory helpers = new address[](1);
 
-        if (powerToken != address(0)) {
-            if (!powerToken.isContract()) {
-                revert TokenNotContract(powerToken);
+        if (tokens[0] != address(0)) {
+            if (!tokens[0].isContract()) {
+                revert TokenNotContract(tokens[0]);
             }
 
-            if (!_isERC20(powerToken)) {
-                revert TokenNotERC20(powerToken);
+            if (!_isERC20(tokens[0])) {
+                revert TokenNotERC20(tokens[0]);
             }
 
             // [0] = IERC20Upgradeable, [1] = IVotesUpgradeable, [2] = IGovernanceWrappedERC20
-            bool[] memory supportedIds = _getTokenInterfaceIds(powerToken);
+            bool[] memory supportedIds = _getTokenInterfaceIds(tokens[0]);
 
             if (
                 // If token supports none of them
@@ -122,11 +132,11 @@ contract DualTokenVotingSetup is PluginSetup {
                 // IVotes nor IGovernanceWrappedERC20, it needs wrapping.
                 (supportedIds[0] && !supportedIds[1] && !supportedIds[2])
             ) {
-                powerToken = governanceWrappedERC20Base.clone();
+                tokens[0] = governanceWrappedERC20Base.clone();
                 // User already has a token. We need to wrap it in
                 // GovernanceWrappedERC20 in order to make the token
                 // include governance functionality.
-                GovernanceWrappedERC20(powerToken).initialize(
+                GovernanceWrappedERC20(tokens[0]).initialize(
                     IERC20Upgradeable(powerTokenSettings.addr),
                     powerTokenSettings.name,
                     powerTokenSettings.symbol
@@ -134,8 +144,8 @@ contract DualTokenVotingSetup is PluginSetup {
             }
         } else {
             // Clone a `GovernanceERC20`.
-            powerToken = governanceERC20Base.clone();
-            GovernanceERC20(powerToken).initialize(
+            tokens[0] = governanceERC20Base.clone();
+            GovernanceERC20(tokens[0]).initialize(
                 IDAO(_dao),
                 powerTokenSettings.name,
                 powerTokenSettings.symbol,
@@ -143,36 +153,43 @@ contract DualTokenVotingSetup is PluginSetup {
             );
         }
 
-        if (memberToken != address(0)) {
+        if (tokens[1] != address(0)) {
             // TODO: Handle this case where a user already has a token they'd like to use
             // This will likely require some edits to the NTToken design
             // For proof of concept rely on installation creating a new memberToken
             revert FeatureNotSupportedInCurrentRelease();
         } else {
             // Create new member token
-            NTToken newMemberToken = new NTToken(
+            tokens[1] = nTToken.clone();
+            NTToken(tokens[1]).initialize(
+                IDAO(_dao),
                 memberTokenSettings.name,
                 memberTokenSettings.symbol
             );
-            memberToken = address(newMemberToken);
         }
 
         //TODO: adjust this helpers to add memberToken and figure out why it's needed for uninstall
-        helpers[0] = powerToken;
+        helpers[0] = tokens[0];
 
         // Prepare and deploy plugin proxy.
         plugin = createERC1967Proxy(
             address(dualTokenVotingBase),
-            abi.encodeWithSelector(DualTokenVoting.initialize.selector, _dao, votingSettings, powerToken, memberToken)
+            abi.encodeWithSelector(DualTokenVoting.initialize.selector, _dao, votingSettings, tokens[0], tokens[1])
         );
 
         //TODO: Figure out what needs to be adjusted here for permissions...
 
         // Prepare permissions
+        uint256 numPermissions = 3;
+        if(powerTokenSettings.addr == address(0)) {
+            numPermissions++;
+        }
+        if(memberTokenSettings.addr == address(0)) {
+            numPermissions++;
+        }
+
         PermissionLib.MultiTargetPermission[]
-            memory permissions = new PermissionLib.MultiTargetPermission[](
-                powerTokenSettings.addr != address(0) ? 3 : 4
-            );
+            memory permissions = new PermissionLib.MultiTargetPermission[](numPermissions);
 
         // Set plugin permissions to be granted.
         // Grant the list of permissions of the plugin to the DAO.
@@ -202,14 +219,25 @@ contract DualTokenVotingSetup is PluginSetup {
         );
 
         if (powerTokenSettings.addr == address(0)) {
-            bytes32 tokenMintPermission = GovernanceERC20(powerToken).MINT_PERMISSION_ID();
+            bytes32 tokenMintPermission = GovernanceERC20(tokens[0]).MINT_PERMISSION_ID();
 
             permissions[3] = PermissionLib.MultiTargetPermission(
                 PermissionLib.Operation.Grant,
-                powerToken,
+                tokens[0],
                 _dao,
                 PermissionLib.NO_CONDITION,
                 tokenMintPermission
+            );
+        }
+        if (memberTokenSettings.addr == address(0)) {
+            bytes32 memberTokenMintPermission = NTToken(tokens[1]).NTT_MINT_PERMISSION_ID();
+
+            permissions[numPermissions-1] = PermissionLib.MultiTargetPermission(
+                PermissionLib.Operation.Grant,
+                tokens[1],
+                _dao,
+                PermissionLib.NO_CONDITION,
+                memberTokenMintPermission
             );
         }
 

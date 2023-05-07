@@ -55,6 +55,7 @@ import {ethers, network} from 'hardhat';
 import {getMergedABI} from '../../utils/abi';
 import { deployWithProxy } from '../../utils/helpers';
 import { ByteLengthQueuingStrategy } from 'stream/web';
+import { deployNewDAO } from '../../utils/dao';
 
 
 describe('DualTokenVoting New DAO', function () {
@@ -81,10 +82,6 @@ describe('DualTokenVoting New DAO', function () {
   before(async () => {
     signers = await ethers.getSigners();
 
-    const hardhatForkNetwork = process.env.HARDHAT_FORK_NETWORK
-      ? process.env.HARDHAT_FORK_NETWORK
-      : 'mainnet';
-
     ({abi: mergedAbi, bytecode: dualTokenVotingByteCode} =
     await getMergedABI(
         // @ts-ignore
@@ -104,112 +101,13 @@ describe('DualTokenVoting New DAO', function () {
     dummyMetadata = ethers.utils.hexlify(
         ethers.utils.toUtf8Bytes('0x123456789')
     );
-    
-    const BN = ethers.BigNumber.from;
-    const ZeroAddress = `0x${"00".repeat(20)}`;
-
-    /* Testing code to create a DAO initialized with a governance plugin taken from AbuUsama's Deno Script 
-    first shared on the DAOHackathon discord channel */
   
     // Get deployed pluginRepo for DualTokenVoting
     pluginRepo = PluginRepo__factory.connect(
         getDeployedContracts()[network.name]["PluginRepo"],
         signers[0]
     );
-
-    // Get the latest version (will be useful after 1.1)
-    const latestVersion = await pluginRepo["getLatestVersion(uint8)"](
-        await pluginRepo.latestRelease()
-    );
-
-
-    // Create setupRef for the DAO creation process since we are installing the governance plugin at the time of creation. 
-    // One governance plugin is required at the time of creation
-    // In the future create tests for installing DualTokenVoting post creation
-    const setupRef = {
-        pluginSetupRepo: pluginRepo.address,
-        versionTag: latestVersion.tag,
-    };
-
-
-    // vote settings for initial plugin installation
-    const voteSettings: MajorityVotingBase.VotingSettingsStruct = {
-        votingMode: BN(1), // 0:  Standard, 1: EarlyExecution, 2: VoteReplacement
-        supportThreshold: BN((0.5 * 10) ^ 6), // percentages are as numbers with a base of 10**6
-        minParticipation: BN((0.1 * 10) ^ 6), // percentages are as numbers with a base of 10**6
-        minDuration: BN(60 * 60 * 24), // 1 day
-        minProposerVotingPower: BN(0), // anyone can create a vote. this is for testing
-    };
-
-    // token settings for initial plugin installation
-    const powerTokenSettings = {
-        addr: ZeroAddress,
-        name: "Token", // the name of your token
-        symbol: "TOK", // the symbol for your token. shouldn't be more than 5 letters
-        decimals: 18, // the number of decimals your token uses
-    };
-    // token settings for initial plugin installation
-    const memberTokenSettings = {
-        addr: ZeroAddress,
-        name: "Member", // the name of your token
-        symbol: "MEM", // the symbol for your token. shouldn't be more than 5 letters
-        decimals: 18, // the number of decimals your token uses
-    };
-
-    // mint settings for initial plugin installation
-    const mintSettings = [[signers[0].address], [BN((100e18).toString())]];
-
-    // 3. encode the setup data. this is very low level, your better of using the SDK to do this but as
-    // a plugin dev you should understand whats happening under the hood. especially as you need to write
-    // your own setup data for your plugin. Most plugins will not have so many params though.
-    // https://github.com/aragon/osx/blob/527474bb14529f2892e8277f6d7a1ca2da637a55/packages/contracts/src/plugins/governance/majority-voting/token/TokenVotingSetup.sol#L88
-    const abiCoder = new ethers.utils.AbiCoder();
-
-    const encodedSetupData = abiCoder.encode(
-        [
-            "tuple(uint8 votingMode, uint64 supportThreshold, uint64 minParticipation, uint64 minDuration, uint256 minProposerVotingPower) votingSettings",
-            "tuple(address addr, string name, string symbol) powerTokenSettings",
-            "tuple(address addr, string name, string symbol) memberTokenSettings",
-            "tuple(address[] receivers, uint256[] amounts) mintSettings",
-        ],
-        [voteSettings, powerTokenSettings, memberTokenSettings, mintSettings]
-    );
-
-    const installData = {
-        pluginSetupRef: setupRef,
-        data: hexToBytes(encodedSetupData),
-    };
-
-    // 4. create the DAO
-    const daoFactory = DAOFactory__factory.connect(
-        activeContractsList.mumbai.DAOFactory,
-        signers[0]
-    );
-    const daoCreationTx = await daoFactory.createDao(
-        {
-            metadata: ethers.utils.toUtf8Bytes("ipfs://Qm..."),
-            subdomain: `some-dao-w${Math.floor(Math.random() * 1000)}`,
-            daoURI: "https://diverity.com",
-            trustedForwarder: `0x${"00".repeat(20)}`,
-        },
-        [installData],
-        { gasLimit: 5000000 }
-    );
-
-    // 5. wait for the DAO to be created
-    const daoReceipt = await daoCreationTx.wait();
-    const daoInterface = DAORegistry__factory.createInterface();
-    const daoTopic = daoInterface.getEventTopic("DAORegistered");
-    console.log(daoTopic)
-    const daoLog = daoReceipt.logs.find((x) => x.topics.indexOf(daoTopic) >= 0);
-    if (!daoLog) throw new Error("UH OH");
-    daoAddress = daoInterface.parseLog(daoLog).args.dao;
-    console.log(`Deployed DAO with initialized plugin at ${daoAddress}`);
-    //connect to the dao
-    dao = DAO__factory.connect(
-        daoAddress,
-        signers[0]
-    );
+    dao = await deployNewDAO(signers[0].address);
   });
 
   
@@ -237,11 +135,11 @@ describe('DualTokenVoting New DAO', function () {
             }
         );
         NTToken = await ethers.getContractFactory(
-            'NTToken',
-            signers[0] // TODO: build out permissions for NTToken using DaoAuthorizableUpgradeable
+            'NTToken'
         ) as NTToken__factory;
 
         nTToken = await NTToken.deploy(
+            dao.address,
             'Membership',
             'MEM'
         );
@@ -253,12 +151,19 @@ describe('DualTokenVoting New DAO', function () {
         voting = await deployWithProxy(DualTokenVotingFactory);
         startDate = (await getTime()) + startOffset;
         endDate = startDate + votingSettings.minDuration;
-        dao.grant(
-            dao.address,
-            voting.address,
-            ethers.utils.id('EXECUTE_PERMISSION')
-        );
-
+        // In addition to granting EXECUTE_PERMISSION to voting plugin, grant NTT_MINT_PERMISSION to signers[0] for testing purposes
+        await Promise.all([
+          dao.grant(
+              dao.address,
+              voting.address,
+              ethers.utils.id('EXECUTE_PERMISSION')
+          ),
+          dao.grant(
+            nTToken.address,
+            signers[0].address,
+            ethers.utils.id('NTT_MINT_PERMISSION')
+          )
+        ]);
     });
     async function setBalances(
         balances: {receiver: string; amount: number | BigNumber}[]

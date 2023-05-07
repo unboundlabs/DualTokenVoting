@@ -4,17 +4,21 @@ import {expect} from 'chai';
 
 import {
     NTToken,
-    NTToken__factory
+    NTToken__factory,
+    DAO
 } from '../../typechain'
 import { Address } from 'hardhat-deploy/types';
+import { deployNewDAO } from '../../utils/dao';
 
 let signers: SignerWithAddress[];
+let dao: DAO;
 let token: NTToken;
 let TokenFactory: NTToken__factory
 
 describe.only("Non-Transferable Token", async () => {
     before(async () => {
         signers = await ethers.getSigners();
+        dao = await deployNewDAO(signers[0].address);
     })
     describe("Token Deployment", async () => {
         it("Successfully deploy the token contract", async () => {
@@ -24,9 +28,18 @@ describe.only("Non-Transferable Token", async () => {
             ) as NTToken__factory;
     
             token = await TokenFactory.deploy(
+                dao.address,
                 "Non-Transferable Token Name",
                 "NTT",
             );
+
+            await Promise.all([
+                dao.grant(
+                  token.address,
+                  signers[0].address,
+                  ethers.utils.id('NTT_MINT_PERMISSION')
+                )
+              ]);
             expect(await token.name()).to.be.equal("Non-Transferable Token Name")
             expect(await token.symbol()).to.be.equal("NTT")
         });

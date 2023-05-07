@@ -1,9 +1,14 @@
 {
   "ui": "",
-  "change": "Initial build.",
+  "change": "",
   "pluginSetupABI": {
-    "prepareInstallation": ["uint256 number"],
-    "prepareUpdate": [],
-    "prepareUninstallation": []
+    "prepareInstallation": [
+      "tuple(uint8 votingMode, uint64 supportThreshold, uint64 minParticipation, uint64 minDuration, uint256 minProposerVotingPower) votingSettings",
+      "tuple(address addr, string name, string symbol) powerTokenSettings",
+      "tuple(address addr, string name, string symbol) memberTokenSettings",
+      "tuple(address[] receivers, uint256[] amounts) mintSettings"
+    ],
+    "prepareUpdate": [""],
+    "prepareUninstallation": [""]
   }
 }
