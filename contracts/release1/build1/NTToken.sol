@@ -2,10 +2,10 @@
 pragma solidity ^0.8.7;
 
 import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
+import {IERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {DaoAuthorizableUpgradeable} from "@aragon/osx/core/plugin/dao-authorizable/DaoAuthorizableUpgradeable.sol";
 import {IDAO} from "@aragon/osx/core/dao/IDAO.sol";
 
@@ -16,8 +16,16 @@ import {IDAO} from "@aragon/osx/core/dao/IDAO.sol";
 // TODO: Abstract out interface and use an Interface design pattern to make this more extensible with totalSupply & allOwners
 // TODO: Expand inheritance so this isn't limited to ERC721, NTT should restrict transfer, and optionally implement totalSupply & allOwners
 
-contract NTToken is Initializable, ERC721Upgradeable, OwnableUpgradeable, DaoAuthorizableUpgradeable   {
+contract NTToken is Initializable, ERC721Upgradeable, DaoAuthorizableUpgradeable   {
     using CountersUpgradeable for CountersUpgradeable.Counter;
+
+    /// @notice The [ERC-165](https://eips.ethereum.org/EIPS/eip-165) interface ID of the contract.
+    bytes4 internal constant NTT_INTERFACE_ID =
+        this.initialize.selector ^ 
+        this.safeMint.selector ^ 
+        this.burn.selector ^
+        this.totalSupply.selector ^
+        this.allOwners.selector;
 
     bytes32 public constant NTT_MINT_PERMISSION_ID = keccak256("NTT_MINT_PERMISSION");
 
@@ -31,8 +39,15 @@ contract NTToken is Initializable, ERC721Upgradeable, OwnableUpgradeable, DaoAut
 
     function initialize(IDAO dao_, string memory name_, string memory symbol_) initializer public {
         __ERC721_init(name_, symbol_);
-        __Ownable_init();
         __DaoAuthorizableUpgradeable_init(dao_);
+    }
+
+    function supportsInterface(bytes4 _interfaceId) public view virtual override returns (bool) {
+        return
+            _interfaceId == NTT_INTERFACE_ID ||
+            _interfaceId == type(DaoAuthorizableUpgradeable).interfaceId ||
+            _interfaceId == type(IERC721Upgradeable).interfaceId ||
+            super.supportsInterface(_interfaceId);
     }
 
     function safeMint(address to) public auth(NTT_MINT_PERMISSION_ID) {

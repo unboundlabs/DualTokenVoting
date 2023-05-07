@@ -2,7 +2,7 @@ import {expect} from 'chai';
 import {ethers} from 'hardhat';
 import {SignerWithAddress} from '@nomiclabs/hardhat-ethers/signers';
 
-import {ERC20, DualTokenVotingSetup, DualTokenVotingSetup__factory, ERC20__factory} from '../../typechain';
+import {ERC20, DualTokenVotingSetup, DualTokenVotingSetup__factory, ERC20__factory, ERC721__factory, ERC721, NTToken__factory, ERC721Mock__factory} from '../../typechain';
 import {deployNewDAO} from '../../utils/dao';
 import {getInterfaceID} from '../../utils/interfaces';
 import {Operation} from '../helpers/types';
@@ -48,6 +48,7 @@ describe.only('DualTokenVotingSetup', function () {
   let implementationAddress: string;
   let targetDao: any;
   let erc20Token: ERC20;
+  let erc721Token: ERC721;
 
   before(async () => {
     signers = await ethers.getSigners();
@@ -73,6 +74,9 @@ describe.only('DualTokenVotingSetup', function () {
 
     const ERC20Token = await ethers.getContractFactory('ERC20') as ERC20__factory;
     erc20Token = await ERC20Token.deploy(tokenName, tokenSymbol);
+
+    const ERC721Token = await ethers.getContractFactory('ERC721') as ERC721__factory;
+    erc721Token = await ERC721Token.deploy("Member", "MEM");
 
     defaultData = abiCoder.encode(prepareInstallationDataTypes, [
       Object.values(defaultVotingSettings),
@@ -166,7 +170,23 @@ describe.only('DualTokenVotingSetup', function () {
         .withArgs(tokenAddress);
     });
 
-    it('correctly returns plugin, helpers and permissions, when an ERC20 token address is supplied', async () => {
+    it('fails if passed member token address is not supported', async () => {
+      const tokenAddress = implementationAddress;
+      const data = abiCoder.encode(prepareInstallationDataTypes, [
+        Object.values(defaultVotingSettings),
+        [erc20Token.address, '', ''],
+        [tokenAddress, '', ''],
+        Object.values(defaultMintSettings),
+      ]);
+
+      await expect(
+        dualTokenVotingSetup.prepareInstallation(targetDao.address, data)
+      )
+        .to.be.revertedWithCustomError(dualTokenVotingSetup, 'MemberTokenNotSupported')
+        .withArgs(tokenAddress);
+    });
+
+    it('correctly returns plugin, helpers and permissions, when an ERC20 token address is supplied and membership token is not supplied', async () => {
       const nonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
@@ -201,8 +221,8 @@ describe.only('DualTokenVotingSetup', function () {
 
       // Expect Plugin
       expect(plugin).to.be.equal(anticipatedPluginAddress);
-      expect(helpers.length).to.be.equal(1);
-      expect(helpers).to.be.deep.equal([anticipatedWrappedTokenAddress]);
+      expect(helpers.length).to.be.equal(2);
+      expect(helpers).to.be.deep.equal([anticipatedWrappedTokenAddress, anticipatedMemberTokenAddress]);
       expect(permissions.length).to.be.equal(4);
       expect(permissions).to.deep.equal([
         [
@@ -236,7 +256,7 @@ describe.only('DualTokenVotingSetup', function () {
       ]);
     });
 
-    it('correctly sets up `GovernanceWrappedERC20` helper, when an ERC20 token address is supplied', async () => {
+    it('correctly sets up `GovernanceWrappedERC20` helper, when an ERC20 token address is supplied and membership token is not supplied', async () => {
       const nonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
@@ -272,7 +292,7 @@ describe.only('DualTokenVotingSetup', function () {
       );
     });
 
-    it('correctly returns plugin, helpers and permissions, when a governance token address is supplied', async () => {
+    it('correctly returns plugin, helpers and permissions, when a governance token address is supplied and membership token is not supplied', async () => {
       const GovernanceERC20 = await ethers.getContractFactory(
         'GovernanceERC20'
       );
@@ -313,8 +333,8 @@ describe.only('DualTokenVotingSetup', function () {
       );
 
       expect(plugin).to.be.equal(anticipatedPluginAddress);
-      expect(helpers.length).to.be.equal(1);
-      expect(helpers).to.be.deep.equal([governanceERC20.address]);
+      expect(helpers.length).to.be.equal(2);
+      expect(helpers).to.be.deep.equal([governanceERC20.address, anticipatedMemberTokenAddress]);
       expect(permissions.length).to.be.equal(4);
       expect(permissions).to.deep.equal([
         [
@@ -348,7 +368,7 @@ describe.only('DualTokenVotingSetup', function () {
       ]);
     });
 
-    it('correctly returns plugin, helpers and permissions, when a token address is not supplied', async () => {
+    it('correctly returns plugin, helpers and permissions, when a token address is not supplied and membership token is not supplied', async () => {
       const nonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
@@ -376,8 +396,8 @@ describe.only('DualTokenVotingSetup', function () {
       );
 
       expect(plugin).to.be.equal(anticipatedPluginAddress);
-      expect(helpers.length).to.be.equal(1);
-      expect(helpers).to.be.deep.equal([anticipatedPowerTokenAddress]);
+      expect(helpers.length).to.be.equal(2);
+      expect(helpers).to.be.deep.equal([anticipatedPowerTokenAddress, anticipatedMemberTokenAddress]);
       expect(permissions.length).to.be.equal(5);
       expect(permissions).to.deep.equal([
         [
@@ -418,7 +438,7 @@ describe.only('DualTokenVotingSetup', function () {
       ]);
     });
 
-    it('correctly sets up the plugin and helpers, when a token address is not passed', async () => {
+    it('correctly sets up the plugin and helpers, when a token address is not passed and membership token is not supplied', async () => {
       const daoAddress = targetDao.address;
 
       const data = abiCoder.encode(prepareInstallationDataTypes, [
@@ -466,6 +486,72 @@ describe.only('DualTokenVotingSetup', function () {
       );
       expect(await dualTokenVoting.getVotingPowerToken()).to.be.equal(
         anticipatedPowerTokenAddress
+      );
+      expect(await dualTokenVoting.getMembershipToken()).to.be.equal(
+        anticipatedMemberTokenAddress
+      );
+
+      // check helpers
+      const GovernanceTokenFactory = await ethers.getContractFactory(
+        'GovernanceERC20'
+      );
+      const governanceTokenContract = GovernanceTokenFactory.attach(
+        anticipatedPowerTokenAddress
+      );
+
+      expect(await governanceTokenContract.dao()).to.be.equal(daoAddress);
+      expect(await governanceTokenContract.name()).to.be.equal(tokenName);
+      expect(await governanceTokenContract.symbol()).to.be.equal(tokenSymbol);
+    });
+
+    it('correctly sets up the plugin and helpers, when a token address is not passed and membership token is supplied', async () => {
+      const daoAddress = targetDao.address;
+
+      const data = abiCoder.encode(prepareInstallationDataTypes, [
+        Object.values(defaultVotingSettings),
+        [AddressZero, tokenName, tokenSymbol],
+        [erc721Token.address, '', ''],
+        [merkleMintToAddressArray, merkleMintToAmountArray],
+      ]);
+
+      const nonce = await ethers.provider.getTransactionCount(
+        dualTokenVotingSetup.address
+      );
+      const anticipatedPowerTokenAddress = ethers.utils.getContractAddress({
+        from: dualTokenVotingSetup.address,
+        nonce: nonce,
+      });
+
+      const anticipatedPluginAddress = ethers.utils.getContractAddress({
+        from: dualTokenVotingSetup.address,
+        nonce: nonce + 1,
+      });
+
+      await dualTokenVotingSetup.prepareInstallation(daoAddress, data);
+
+      // check plugin
+      const PluginFactory = await ethers.getContractFactory('DualTokenVoting');
+      const dualTokenVoting = PluginFactory.attach(anticipatedPluginAddress);
+
+      expect(await dualTokenVoting.dao()).to.be.equal(daoAddress);
+
+      expect(await dualTokenVoting.minParticipation()).to.be.equal(
+        defaultVotingSettings.minParticipation
+      );
+      expect(await dualTokenVoting.supportThreshold()).to.be.equal(
+        defaultVotingSettings.supportThreshold
+      );
+      expect(await dualTokenVoting.minDuration()).to.be.equal(
+        defaultVotingSettings.minDuration
+      );
+      expect(await dualTokenVoting.minProposerVotingPower()).to.be.equal(
+        defaultVotingSettings.minProposerVotingPower
+      );
+      expect(await dualTokenVoting.getVotingPowerToken()).to.be.equal(
+        anticipatedPowerTokenAddress
+      );
+      expect(await dualTokenVoting.getMembershipToken()).to.be.equal(
+        erc721Token.address
       );
 
       // check helpers
@@ -534,13 +620,27 @@ describe.only('DualTokenVotingSetup', function () {
         tokenSymbol
       );
 
+      const NTToken = await ethers.getContractFactory(
+        'NTToken'
+      ) as NTToken__factory;
+      const ERC721Mock = await ethers.getContractFactory(
+        'ERC721Mock'
+      ) as ERC721Mock__factory;
+
+      const nTToken = await NTToken.deploy(
+        targetDao.address,
+        "Members",
+        "MEM"
+      );
+
+      const eRC721Mock = await ERC721Mock.deploy();
       // When the helpers contain governanceWrappedERC20 token
       const permissions1 =
         await dualTokenVotingSetup.callStatic.prepareUninstallation(
           targetDao.address,
           {
             plugin,
-            currentHelpers: [governanceWrappedERC20.address],
+            currentHelpers: [governanceWrappedERC20.address, eRC721Mock.address],
             data: EMPTY_DATA,
           }
         );
@@ -568,6 +668,7 @@ describe.only('DualTokenVotingSetup', function () {
           EXECUTE_PERMISSION_ID,
         ],
       ];
+      
 
       expect(permissions1.length).to.be.equal(3);
       expect(permissions1).to.deep.equal([...essentialPermissions]);
@@ -577,7 +678,7 @@ describe.only('DualTokenVotingSetup', function () {
           targetDao.address,
           {
             plugin,
-            currentHelpers: [governanceERC20.address],
+            currentHelpers: [governanceERC20.address, eRC721Mock.address],
             data: EMPTY_DATA,
           }
         );
@@ -591,6 +692,56 @@ describe.only('DualTokenVotingSetup', function () {
           targetDao.address,
           AddressZero,
           MINT_PERMISSION_ID,
+        ],
+      ]);
+
+      const permissions3 =
+        await dualTokenVotingSetup.callStatic.prepareUninstallation(
+          targetDao.address,
+          {
+            plugin,
+            currentHelpers: [governanceERC20.address, nTToken.address],
+            data: EMPTY_DATA,
+          }
+        );
+      expect(permissions3.length).to.be.equal(5);
+      expect(permissions3).to.deep.equal([
+        ...essentialPermissions,
+        [
+          Operation.Revoke,
+          governanceERC20.address,
+          targetDao.address,
+          AddressZero,
+          MINT_PERMISSION_ID,
+        ],
+        [
+          Operation.Revoke,
+          nTToken.address,
+          targetDao.address,
+          AddressZero,
+          NTT_MINT_PERMISSION_ID,
+        ],
+      ]);
+
+      const permissions4 =
+        await dualTokenVotingSetup.callStatic.prepareUninstallation(
+          targetDao.address,
+          {
+            plugin,
+            currentHelpers: [governanceWrappedERC20.address, nTToken.address],
+            data: EMPTY_DATA,
+          }
+        );
+
+      expect(permissions4.length).to.be.equal(4);
+      expect(permissions4).to.deep.equal([
+        ...essentialPermissions,
+        [
+          Operation.Revoke,
+          nTToken.address,
+          targetDao.address,
+          AddressZero,
+          NTT_MINT_PERMISSION_ID,
         ],
       ]);
     });

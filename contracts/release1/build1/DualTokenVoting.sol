@@ -30,7 +30,7 @@ contract DualTokenVoting is IMembership, MajorityVotingBase {
 
     /// @notice The [ERC-165](https://eips.ethereum.org/EIPS/eip-165) interface ID of the contract.
     bytes4 internal constant TOKEN_VOTING_INTERFACE_ID =
-        this.initialize.selector ^ this.getVotingPowerToken.selector;
+        this.initialize.selector ^ this.getVotingPowerToken.selector ^ this.getMembershipToken.selector;
 
     /// @notice An [OpenZeppelin `Votes`](https://docs.openzeppelin.com/contracts/4.x/api/governance#Votes) compatible contract referencing the token being used for voting.
     IVotesUpgradeable private votingPowerToken;
@@ -165,7 +165,7 @@ contract DualTokenVoting is IMembership, MajorityVotingBase {
 
     /// @inheritdoc IMembership
     function isMember(address _account) external view returns (bool) {
-        return membershipToken.balanceOf(_account) == 1;
+        return membershipToken.balanceOf(_account) > 0;
     }
 
     /// @inheritdoc MajorityVotingBase

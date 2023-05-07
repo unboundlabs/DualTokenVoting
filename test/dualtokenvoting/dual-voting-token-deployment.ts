@@ -16,9 +16,9 @@ let signers: SignerWithAddress[];
 let repoRegistry: PluginRepoRegistry;
 let dualTokenVotingRepo: PluginRepo;
 
-let setupR1B1: DualTokenVotingSetup;
+let dtvsetup: DualTokenVotingSetup;
 
-describe('DualVotingToken Deployment', function () {
+describe.only('DualVotingToken Deployment', function () {
   before(async () => {
     const hardhatForkNetwork = process.env.HARDHAT_FORK_NETWORK
       ? process.env.HARDHAT_FORK_NETWORK
@@ -42,7 +42,7 @@ describe('DualVotingToken Deployment', function () {
       signers[0]
     );
 
-    setupR1B1 = DualTokenVotingSetup__factory.connect(
+    dtvsetup = DualTokenVotingSetup__factory.connect(
       (await deployments.get('DualTokenVotingSetup')).address,
       signers[0]
     );
@@ -61,7 +61,7 @@ describe('DualVotingToken Deployment', function () {
       }
     );
 
-    expect(results.pluginSetup).to.equal(setupR1B1.address);
+    expect(results.pluginSetup).to.equal(dtvsetup.address);
   });
 
   it('makes the deployer the repo maintainer', async () => {

@@ -7,6 +7,8 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {IVotesUpgradeable} from "@openzeppelin/contracts-upgradeable/governance/utils/IVotesUpgradeable.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721Upgradeable.sol";
 
 import {IDAO} from "@aragon/osx/core/dao/IDAO.sol";
 import {DAO} from "@aragon/osx/core/dao/DAO.sol";
@@ -64,6 +66,9 @@ contract DualTokenVotingSetup is PluginSetup {
     /// @notice Thrown if feature is not supported in current version.
     error FeatureNotSupportedInCurrentRelease();
 
+    /// @notice Thrown if supplied member token address is not currently supported.
+    error MemberTokenNotSupported(address token);
+
     /// @notice The contract constructor, that deploys the bases.
     constructor() {
         governanceERC20Base = address(
@@ -109,7 +114,7 @@ contract DualTokenVotingSetup is PluginSetup {
         tokens[1] = memberTokenSettings.addr;
 
         // Prepare helpers.
-        address[] memory helpers = new address[](1);
+        address[] memory helpers = new address[](2);
 
         if (tokens[0] != address(0)) {
             if (!tokens[0].isContract()) {
@@ -154,10 +159,25 @@ contract DualTokenVotingSetup is PluginSetup {
         }
 
         if (tokens[1] != address(0)) {
-            // TODO: Handle this case where a user already has a token they'd like to use
-            // This will likely require some edits to the NTToken design
-            // For proof of concept rely on installation creating a new memberToken
-            revert FeatureNotSupportedInCurrentRelease();
+
+            // Check if the member token is supported for use.
+            // For a member token to be used it must have a balanceOf(address) function
+            // Membership, voting & proposal creation privileges are determined by balanceOf > 0
+
+            if (!tokens[1].isContract()) {
+                revert TokenNotContract(tokens[1]);
+            }
+
+            // [0] = IERC20Upgradeable, [1] = IVotesUpgradeable, [2] = IGovernanceWrappedERC20, [3] = IERC721Upgradeable, [4] = IERC721
+            bool[] memory supportedIds = _getTokenInterfaceIds(tokens[1]);
+
+            // This is an overly restrictive method 
+            // Instead of restricting to ERC721 or ERC721Upgradeable one possibility could be to
+            // check for support of the balanceOf(address) method via Interface or staticcall
+            if(!supportedIds[3] || !supportedIds[4]) {
+                revert MemberTokenNotSupported(tokens[1]);
+            }
+            // TODO: Add support for ERC1155 / ERC1155Upgradeable
         } else {
             // Create new member token
             tokens[1] = nTToken.clone();
@@ -170,6 +190,7 @@ contract DualTokenVotingSetup is PluginSetup {
 
         //TODO: adjust this helpers to add memberToken and figure out why it's needed for uninstall
         helpers[0] = tokens[0];
+        helpers[1] = tokens[1];
 
         // Prepare and deploy plugin proxy.
         plugin = createERC1967Proxy(
@@ -252,19 +273,23 @@ contract DualTokenVotingSetup is PluginSetup {
     ) external view returns (PermissionLib.MultiTargetPermission[] memory permissions) {
         // Prepare permissions.
         uint256 helperLength = _payload.currentHelpers.length;
-        if (helperLength != 1) {
+        if (helperLength != 2) {
             revert WrongHelpersArrayLength({length: helperLength});
         }
 
         // token can be either GovernanceERC20, GovernanceWrappedERC20, or IVotesUpgradeable, which
         // does not follow the GovernanceERC20 and GovernanceWrappedERC20 standard.
-        address token = _payload.currentHelpers[0];
+        address[] memory tokens = new address[](2);
 
-        bool[] memory supportedIds = _getTokenInterfaceIds(token);
+        tokens[0] = _payload.currentHelpers[0];
+        tokens[1] = _payload.currentHelpers[1];
+
+        bool[] memory supportedIds = _getTokenInterfaceIds(tokens[0]);
 
         bool isGovernanceERC20 = supportedIds[0] && supportedIds[1] && !supportedIds[2];
+        bool isNTT = _isNTT(tokens[1]);
 
-        permissions = new PermissionLib.MultiTargetPermission[](isGovernanceERC20 ? 4 : 3);
+        permissions = new PermissionLib.MultiTargetPermission[](isGovernanceERC20 && isNTT ? 5 : isGovernanceERC20 || isNTT ? 4 : 3);
 
         // Set permissions to be Revoked.
         permissions[0] = PermissionLib.MultiTargetPermission(
@@ -297,10 +322,19 @@ contract DualTokenVotingSetup is PluginSetup {
         if (isGovernanceERC20) {
             permissions[3] = PermissionLib.MultiTargetPermission(
                 PermissionLib.Operation.Revoke,
-                token,
+                tokens[0],
                 _dao,
                 PermissionLib.NO_CONDITION,
-                GovernanceERC20(token).MINT_PERMISSION_ID()
+                GovernanceERC20(tokens[0]).MINT_PERMISSION_ID()
+            );
+        }
+        if (isNTT) {
+            permissions[permissions.length-1] = PermissionLib.MultiTargetPermission(
+                PermissionLib.Operation.Revoke,
+                tokens[1],
+                _dao,
+                PermissionLib.NO_CONDITION,
+                NTToken(tokens[1]).NTT_MINT_PERMISSION_ID()
             );
         }
     }
@@ -314,11 +348,24 @@ contract DualTokenVotingSetup is PluginSetup {
     /// @dev It is crucial to verify if the provided token address represents a valid contract before using the below.
     /// @param token The token address
     function _getTokenInterfaceIds(address token) private view returns (bool[] memory) {
-        bytes4[] memory interfaceIds = new bytes4[](3);
+        bytes4[] memory interfaceIds = new bytes4[](5);
         interfaceIds[0] = type(IERC20Upgradeable).interfaceId;
         interfaceIds[1] = type(IVotesUpgradeable).interfaceId;
         interfaceIds[2] = type(IGovernanceWrappedERC20).interfaceId;
+        interfaceIds[3] = type(IERC721Upgradeable).interfaceId;
+        interfaceIds[4] = type(IERC721).interfaceId;
         return token.getSupportedInterfaces(interfaceIds);
+    }
+    
+    function _isNTT(address token) private view returns (bool) {
+        bytes4 ntt_interface =
+            NTToken.initialize.selector ^ 
+            NTToken.safeMint.selector ^ 
+            NTToken.burn.selector ^
+            NTToken.totalSupply.selector ^
+            NTToken.allOwners.selector;
+
+        return token.supportsInterface(ntt_interface);
     }
 
     /// @notice Unsatisfiably determines if the contract is an ERC20 token.

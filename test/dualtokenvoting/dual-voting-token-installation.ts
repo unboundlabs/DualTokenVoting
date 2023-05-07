@@ -7,7 +7,9 @@ import {
   GovernanceERC20Mock,
   GovernanceERC20Mock__factory,
   NTToken,
-  NTToken__factory
+  NTToken__factory,
+  ERC721Mock,
+  ERC721Mock__factory
 } from '../../typechain';
 import {findEventTopicLog, osxContracts, networkNameMapping, getDeployedContracts} from '../../utils/helpers';
 import {toHex, uploadToIPFS} from '../../utils/ipfs-upload';
@@ -187,7 +189,7 @@ describe('DualTokenVoting New DAO', function () {
         );
     }
     describe.only('isMember: ', async () => {
-        it('returns true if the account currently owns at least one token', async () => {
+        it('returns true if the account currently owns an NTT', async () => {
           await voting.initialize(
             dao.address,
             votingSettings,
@@ -197,6 +199,28 @@ describe('DualTokenVoting New DAO', function () {
 
           await nTToken.connect(signers[0]).safeMint(signers[0].address)
           await nTToken.connect(signers[0]).safeMint(signers[1].address)
+    
+          expect(await voting.isMember(signers[0].address)).to.be.true;
+          expect(await voting.isMember(signers[1].address)).to.be.true;
+          expect(await voting.isMember(signers[2].address)).to.be.false;
+        });
+        it('returns true if the account currently owns >1 external ERC721 that is being used for membership', async () => {
+          const ERC721Mock = await ethers.getContractFactory(
+            'ERC721Mock'
+          ) as ERC721Mock__factory;
+
+          const eRC721Mock = await ERC721Mock.deploy();
+
+          await voting.initialize(
+            dao.address,
+            votingSettings,
+            governanceErc20Mock.address,
+            eRC721Mock.address
+          );
+
+          await eRC721Mock.connect(signers[0]).mint(signers[0].address);
+          await eRC721Mock.connect(signers[0]).mint(signers[0].address);
+          await eRC721Mock.connect(signers[0]).mint(signers[1].address);
     
           expect(await voting.isMember(signers[0].address)).to.be.true;
           expect(await voting.isMember(signers[1].address)).to.be.true;
