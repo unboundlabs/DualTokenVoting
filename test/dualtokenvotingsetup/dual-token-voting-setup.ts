@@ -2,7 +2,7 @@ import {expect} from 'chai';
 import {ethers} from 'hardhat';
 import {SignerWithAddress} from '@nomiclabs/hardhat-ethers/signers';
 
-import {ERC20, DualTokenVotingSetup, DualTokenVotingSetup__factory, ERC20__factory, ERC721__factory, ERC721, NTToken__factory, ERC721Mock__factory} from '../../typechain';
+import {ERC20, DualTokenVotingSetup, DualTokenVotingSetup__factory, ERC20__factory, ERC721__factory, ERC721, NTToken__factory, ERC721Mock__factory, ERC20WrapperHelper__factory, ERC20WrapperHelper, ERC20TokenHelper, ERC20TokenHelper__factory, NTTokenHelper, NTTokenHelper__factory, TokenChecker, TokenChecker__factory} from '../../typechain';
 import {deployNewDAO} from '../../utils/dao';
 import {getInterfaceID} from '../../utils/interfaces';
 import {Operation} from '../helpers/types';
@@ -45,6 +45,9 @@ const NTT_MINT_PERMISSION_ID = ethers.utils.id('NTT_MINT_PERMISSION');
 describe.only('DualTokenVotingSetup', function () {
   let signers: SignerWithAddress[];
   let dualTokenVotingSetup: DualTokenVotingSetup;
+  let eRC20WrapperHelper: ERC20WrapperHelper;
+  let eRC20TokenHelper: ERC20TokenHelper;
+  let nTTokenHelper: NTTokenHelper;
   let implementationAddress: string;
   let targetDao: any;
   let erc20Token: ERC20;
@@ -65,10 +68,46 @@ describe.only('DualTokenVotingSetup', function () {
     defaultMemberTokenSettings = {addr: AddressZero, name: '', symbol: ''};
     defaultMintSettings = {receivers: [], amounts: []};
 
+    // Library deployment
+    const lib = await ethers.getContractFactory("TokenChecker") as TokenChecker__factory;
+    const libInstance = await lib.deploy();
+    await libInstance.deployed();
+
+    const ERC20WrapperHelper = await ethers.getContractFactory(
+      'ERC20WrapperHelper'
+    ) as ERC20WrapperHelper__factory;
+
+    const NTTokenHelper = await ethers.getContractFactory(
+      'NTTokenHelper',
+      {
+        libraries: {
+          TokenChecker: libInstance.address
+      }}
+    ) as NTTokenHelper__factory;
+
+    const ERC20TokenHelper = await ethers.getContractFactory(
+      'ERC20TokenHelper',
+      {
+        libraries: {
+          TokenChecker: libInstance.address
+      }}
+    ) as ERC20TokenHelper__factory;
+
     const DualTokenVotingSetup = await ethers.getContractFactory(
-      'DualTokenVotingSetup'
+      'DualTokenVotingSetup',
+      {
+        libraries: {
+          TokenChecker: libInstance.address
+      }}
     ) as DualTokenVotingSetup__factory;
-    dualTokenVotingSetup = await DualTokenVotingSetup.deploy();
+
+    eRC20WrapperHelper = await ERC20WrapperHelper.deploy();
+
+    eRC20TokenHelper = await ERC20TokenHelper.deploy(eRC20WrapperHelper.address);
+
+    nTTokenHelper = await NTTokenHelper.deploy();
+
+    dualTokenVotingSetup = await DualTokenVotingSetup.deploy(eRC20TokenHelper.address, nTTokenHelper.address);
 
     implementationAddress = await dualTokenVotingSetup.implementation();
 
@@ -150,7 +189,7 @@ describe.only('DualTokenVotingSetup', function () {
       await expect(
         dualTokenVotingSetup.prepareInstallation(targetDao.address, data)
       )
-        .to.be.revertedWithCustomError(dualTokenVotingSetup, 'TokenNotContract')
+        .to.be.revertedWithCustomError(eRC20TokenHelper, 'TokenNotContract')
         .withArgs(tokenAddress);
     });
 
@@ -166,7 +205,7 @@ describe.only('DualTokenVotingSetup', function () {
       await expect(
         dualTokenVotingSetup.prepareInstallation(targetDao.address, data)
       )
-        .to.be.revertedWithCustomError(dualTokenVotingSetup, 'TokenNotERC20')
+        .to.be.revertedWithCustomError(eRC20TokenHelper, 'TokenNotERC20')
         .withArgs(tokenAddress);
     });
 
@@ -182,26 +221,36 @@ describe.only('DualTokenVotingSetup', function () {
       await expect(
         dualTokenVotingSetup.prepareInstallation(targetDao.address, data)
       )
-        .to.be.revertedWithCustomError(dualTokenVotingSetup, 'MemberTokenNotSupported')
+        .to.be.revertedWithCustomError(nTTokenHelper, 'MemberTokenNotSupported')
         .withArgs(tokenAddress);
     });
 
     it('correctly returns plugin, helpers and permissions, when an ERC20 token address is supplied and membership token is not supplied', async () => {
-      const nonce = await ethers.provider.getTransactionCount(
+      const dtvsNonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
 
+      const whNonce = await ethers.provider.getTransactionCount(
+        eRC20WrapperHelper.address
+      );
+      const thNonce = await ethers.provider.getTransactionCount(
+        eRC20TokenHelper.address
+      );
+      const ntNonce = await ethers.provider.getTransactionCount(
+        nTTokenHelper.address
+      );
+
       const anticipatedWrappedTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce,
+        from: eRC20WrapperHelper.address,
+        nonce: whNonce,
       });
       const anticipatedMemberTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce + 1,
+        from: nTTokenHelper.address,
+        nonce: ntNonce,
       });
       const anticipatedPluginAddress = ethers.utils.getContractAddress({
         from: dualTokenVotingSetup.address,
-        nonce: nonce + 2,
+        nonce: dtvsNonce,
       });
 
       const data = abiCoder.encode(prepareInstallationDataTypes, [
@@ -257,12 +306,13 @@ describe.only('DualTokenVotingSetup', function () {
     });
 
     it('correctly sets up `GovernanceWrappedERC20` helper, when an ERC20 token address is supplied and membership token is not supplied', async () => {
-      const nonce = await ethers.provider.getTransactionCount(
-        dualTokenVotingSetup.address
-      );
+      const whNonce = await ethers.provider.getTransactionCount(
+        eRC20WrapperHelper.address
+      )
+    
       const anticipatedWrappedTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce,
+        from: eRC20WrapperHelper.address,
+        nonce: whNonce,
       });
 
       const data = abiCoder.encode(prepareInstallationDataTypes, [
@@ -303,18 +353,20 @@ describe.only('DualTokenVotingSetup', function () {
         {receivers: [], amounts: []}
       );
 
-      const nonce = await ethers.provider.getTransactionCount(
+      const dtvsNonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
+      );
+      const ntNonce = await ethers.provider.getTransactionCount(
+        nTTokenHelper.address
       );
 
       const anticipatedMemberTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce,
+        from: nTTokenHelper.address,
+        nonce: ntNonce,
       });
-
       const anticipatedPluginAddress = ethers.utils.getContractAddress({
         from: dualTokenVotingSetup.address,
-        nonce: nonce + 1,
+        nonce: dtvsNonce,
       });
 
       const data = abiCoder.encode(prepareInstallationDataTypes, [
@@ -369,23 +421,29 @@ describe.only('DualTokenVotingSetup', function () {
     });
 
     it('correctly returns plugin, helpers and permissions, when a token address is not supplied and membership token is not supplied', async () => {
-      const nonce = await ethers.provider.getTransactionCount(
+      const dtvsNonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
+      const thNonce = await ethers.provider.getTransactionCount(
+        eRC20TokenHelper.address
+      );
+      const ntNonce = await ethers.provider.getTransactionCount(
+        nTTokenHelper.address
+      );
+
       const anticipatedPowerTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce,
+        from: eRC20TokenHelper.address,
+        nonce: thNonce,
       });
-
       const anticipatedMemberTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce+1,
+        from: nTTokenHelper.address,
+        nonce: ntNonce,
       });
-
       const anticipatedPluginAddress = ethers.utils.getContractAddress({
         from: dualTokenVotingSetup.address,
-        nonce: nonce + 2,
+        nonce: dtvsNonce,
       });
+      
 
       const {
         plugin,
@@ -448,20 +506,27 @@ describe.only('DualTokenVotingSetup', function () {
         [merkleMintToAddressArray, merkleMintToAmountArray],
       ]);
 
-      const nonce = await ethers.provider.getTransactionCount(
+      const dtvsNonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
+      const thNonce = await ethers.provider.getTransactionCount(
+        eRC20TokenHelper.address
+      );
+      const ntNonce = await ethers.provider.getTransactionCount(
+        nTTokenHelper.address
+      );
+
       const anticipatedPowerTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce,
+        from: eRC20TokenHelper.address,
+        nonce: thNonce,
       });
       const anticipatedMemberTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce+1,
+        from: nTTokenHelper.address,
+        nonce: ntNonce,
       });
       const anticipatedPluginAddress = ethers.utils.getContractAddress({
         from: dualTokenVotingSetup.address,
-        nonce: nonce + 2,
+        nonce: dtvsNonce,
       });
 
       await dualTokenVotingSetup.prepareInstallation(daoAddress, data);
@@ -514,17 +579,20 @@ describe.only('DualTokenVotingSetup', function () {
         [merkleMintToAddressArray, merkleMintToAmountArray],
       ]);
 
-      const nonce = await ethers.provider.getTransactionCount(
+      const dtvsNonce = await ethers.provider.getTransactionCount(
         dualTokenVotingSetup.address
       );
-      const anticipatedPowerTokenAddress = ethers.utils.getContractAddress({
-        from: dualTokenVotingSetup.address,
-        nonce: nonce,
-      });
+      const thNonce = await ethers.provider.getTransactionCount(
+        eRC20TokenHelper.address
+      );
 
+      const anticipatedPowerTokenAddress = ethers.utils.getContractAddress({
+        from: eRC20TokenHelper.address,
+        nonce: thNonce,
+      });
       const anticipatedPluginAddress = ethers.utils.getContractAddress({
         from: dualTokenVotingSetup.address,
-        nonce: nonce + 1,
+        nonce: dtvsNonce,
       });
 
       await dualTokenVotingSetup.prepareInstallation(daoAddress, data);

@@ -11,10 +11,44 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const {deploy} = deployments;
   const {deployer} = await getNamedAccounts();
 
-  const result = await deploy(name, {
+  const TokenChecker = await deploy("TokenChecker", {
+    from: deployer
+  });
+
+  const ERC20WrapperHelper = await deploy("ERC20WrapperHelper", {
     from: deployer,
     args: [],
     log: true,
+    libraries: {
+      TokenChecker: TokenChecker.address
+    }
+  })
+
+  const NTTokenHelper = await deploy("NTTokenHelper", {
+    from: deployer,
+    args: [],
+    log: true,
+    libraries: {
+      TokenChecker: TokenChecker.address
+    }
+  })
+
+  const ERC20TokenHelper = await deploy("ERC20TokenHelper", {
+    from: deployer,
+    args: [ERC20WrapperHelper.address],
+    log: true,
+    libraries: {
+      TokenChecker: TokenChecker.address
+    }
+  })
+
+  const result = await deploy('DualTokenVotingSetup', {
+    from: deployer,
+    args: [ERC20TokenHelper.address, NTTokenHelper.address],
+    log: true,
+    libraries: {
+      TokenChecker: TokenChecker.address
+    }
   });
 
   addDeployedContract(network.name, name, result.address);

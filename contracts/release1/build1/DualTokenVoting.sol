@@ -22,8 +22,6 @@ import {NTToken} from "./NTToken.sol";
         While membership and therefore voting ability is limited to owners of the membership token,
         Voting power is still determined by the [OpenZeppelin `Votes`](https://docs.openzeppelin.com/contracts/4.x/api/governance#Votes) compatible governance token.
         Therefore the voting settings defined in MajorityVotingBase still apply.
-
-    TODO: 
 */
 contract DualTokenVoting is IMembership, MajorityVotingBase {
     using SafeCastUpgradeable for uint256;

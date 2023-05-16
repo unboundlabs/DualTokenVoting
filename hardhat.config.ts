@@ -18,6 +18,8 @@ import 'solidity-coverage';
 const dotenvConfigPath: string = process.env.DOTENV_CONFIG_PATH || './.env';
 dotenvConfig({path: resolve(__dirname, dotenvConfigPath)});
 
+// Using a timestamp string to avoid naming conflicts for test deployments
+// Change this for live deployment
 process.env.PLUGIN_UID = Date.now().toString()
 
 if (!process.env.INFURA_API_KEY) {
@@ -153,7 +155,7 @@ const config: HardhatUserConfig = {
       // https://hardhat.org/hardhat-network/#solidity-optimizer-support
       optimizer: {
         enabled: true,
-        runs: 800,
+        runs: 1,
       },
     },
   },

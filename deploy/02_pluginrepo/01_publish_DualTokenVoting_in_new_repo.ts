@@ -64,7 +64,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Uploaded metadata of release 1: ${releaseMetadataURI}`);
   console.log(`Uploaded metadata of build 1: ${buildMetadataURI}`);
 
-  const pluginName = `dtv${process.env.PLUGIN_UID}`;
+  const pluginName = `${process.env.PLUGIN_UID}`; 
   const pluginSetupContractName = 'DualTokenVotingSetup';
 
   const dtvsetup = await deployments.get(pluginSetupContractName);

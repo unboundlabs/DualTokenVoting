@@ -55,6 +55,8 @@ Currently the tests are restricted using the `.only()` flag to those that are re
 ## Notes
 Currently for external/existing member tokens, there is only support for ERC721. We intend to expand this to include ERC1155 and potentially others in the near future.
 
+The setup contract relies on a handful of helper contracts for creating/wrapping the tokens used in the plugin. Currently these have not been deployed using a proxy pattern but this is planned for the near term. 
+
 ## Why did we build this?
 At [Unbound Labs](https://www.unboundlabs.io) we believe that DAOs are critical for the future of innovation. We believe that by using a DAO structure to share ownership between users and builders, organizations can grow faster, build better products/services, reduce churn, and operate more equitably. Unbound Labs is proving this vision by building decentralized marketplaces in specialized markets such as [DiVerity](https://www.diverity.com).
 
