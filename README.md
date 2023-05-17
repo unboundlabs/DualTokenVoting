@@ -1,6 +1,6 @@
 # `DualTokenVoting` Aragon OSx Plugin
 
-*Submitted for ([DAO Global Hackathon](https://daoglobalhackathon.hackerearth.com/)) [Aragon] Best Decision-Making Plugin*
+*Best Decision-Making Plugin Winner @ ([2023 DAO Global Hackathon](https://daoglobalhackathon.hackerearth.com/)) [Aragon]*
 
 An Aragon OSx plugin for using a member/citizenship token alongside a voting power token.
 
